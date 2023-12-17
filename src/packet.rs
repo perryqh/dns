@@ -1,7 +1,3 @@
-use crate::byte_packet_buffer::BytePacketBuffer;
-use crate::header::Header;
-use crate::question::Question;
-use crate::record::Record;
 // https://datatracker.ietf.org/doc/html/rfc1035
 //     +---------------------+
 //     |        Header       |
@@ -14,6 +10,11 @@ use crate::record::Record;
 //     +---------------------+
 //     |      Additional     | RRs holding additional information
 //     +---------------------+
+use crate::byte_packet_buffer::BytePacketBuffer;
+use crate::header::Header;
+use crate::question::Question;
+use crate::record::Record;
+
 #[derive(Clone, Debug, Default)]
 pub struct Packet {
     pub header: Header,

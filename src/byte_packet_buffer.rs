@@ -3,6 +3,12 @@ pub struct BytePacketBuffer {
     pub pos: usize,
 }
 
+impl Default for BytePacketBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BytePacketBuffer {
     /// This gives us a fresh buffer for holding the packet contents, and a
     /// field for keeping track of where we are.
@@ -56,7 +62,7 @@ impl BytePacketBuffer {
         if start + len >= 512 {
             anyhow::bail!("End of buffer");
         }
-        Ok(&self.buf[start..start + len as usize])
+        Ok(&self.buf[start..start + len])
     }
 
     /// Read two bytes, stepping two steps forward
@@ -71,7 +77,7 @@ impl BytePacketBuffer {
         let res = ((self.read()? as u32) << 24)
             | ((self.read()? as u32) << 16)
             | ((self.read()? as u32) << 8)
-            | ((self.read()? as u32) << 0);
+            | (self.read()? as u32);
 
         Ok(res)
     }
@@ -163,5 +169,149 @@ impl BytePacketBuffer {
         }
 
         Ok(())
+    }
+
+    pub fn write(&mut self, val: u8) -> anyhow::Result<()> {
+        if self.pos >= 512 {
+            anyhow::bail!("End of buffer");
+        }
+        self.buf[self.pos] = val;
+        self.pos += 1;
+        Ok(())
+    }
+
+    pub fn write_u8(&mut self, val: u8) -> anyhow::Result<()> {
+        self.write(val)?;
+
+        Ok(())
+    }
+
+    pub fn write_u16(&mut self, val: u16) -> anyhow::Result<()> {
+        self.write((val >> 8) as u8)?;
+        self.write((val & 0xFF) as u8)?;
+
+        Ok(())
+    }
+
+    pub fn write_u32(&mut self, val: u32) -> anyhow::Result<()> {
+        self.write(((val >> 24) & 0xFF) as u8)?;
+        self.write(((val >> 16) & 0xFF) as u8)?;
+        self.write(((val >> 8) & 0xFF) as u8)?;
+        self.write((val & 0xFF) as u8)?;
+
+        Ok(())
+    }
+
+    pub fn write_qname(&mut self, qname: &str) -> anyhow::Result<()> {
+        for label in qname.split('.') {
+            let len = label.len();
+            if len > 0x3f {
+                anyhow::bail!("Single label exceeds 63 characters of length");
+            }
+
+            self.write_u8(len as u8)?;
+            for b in label.as_bytes() {
+                self.write_u8(*b)?;
+            }
+        }
+
+        self.write_u8(0)?;
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_write_u16() {
+        let mut packet = BytePacketBuffer::new();
+        packet.write_u16(0x1234).unwrap();
+        assert_eq!(packet.pos(), 2);
+        assert_eq!(packet.buf[0], 0x12);
+        assert_eq!(packet.buf[1], 0x34);
+
+        packet.seek(0).unwrap();
+        let res = packet.read_u16().unwrap();
+        assert_eq!(res, 0x1234);
+        assert_eq!(packet.pos(), 2);
+    }
+
+    #[test]
+    fn test_read_write_u32() {
+        let mut packet = BytePacketBuffer::new();
+        packet.write_u32(0x12345678).unwrap();
+        assert_eq!(packet.pos(), 4);
+        assert_eq!(packet.buf[0], 0x12);
+        assert_eq!(packet.buf[1], 0x34);
+        assert_eq!(packet.buf[2], 0x56);
+        assert_eq!(packet.buf[3], 0x78);
+
+        packet.seek(0).unwrap();
+        let res = packet.read_u32().unwrap();
+        assert_eq!(res, 0x12345678);
+        assert_eq!(packet.pos(), 4);
+    }
+
+    #[test]
+    fn test_read_write_qname() {
+        let mut packet = BytePacketBuffer::new();
+        packet.write_qname("www").unwrap();
+        assert_eq!(packet.pos(), 5);
+        assert_eq!(packet.buf[0], 3);
+        assert_eq!(packet.buf[1], b'w');
+        assert_eq!(packet.buf[2], b'w');
+        assert_eq!(packet.buf[3], b'w');
+        assert_eq!(packet.buf[4], 0);
+
+        let mut packet = BytePacketBuffer::new();
+        packet.write_qname("www.google.com").unwrap();
+        assert_eq!(packet.pos(), 16);
+        assert_eq!(packet.buf[0], 3);
+        assert_eq!(packet.buf[1..=3], [b'w', b'w', b'w']);
+        assert_eq!(packet.buf[4], 6);
+        assert_eq!(packet.buf[5..=10], [b'g', b'o', b'o', b'g', b'l', b'e']);
+        assert_eq!(packet.buf[11], 3);
+        assert_eq!(packet.buf[12..=14], [b'c', b'o', b'm']);
+        assert_eq!(packet.buf[15], 0);
+
+        packet.seek(0).unwrap();
+        let mut outstr = String::new();
+        packet.read_qname(&mut outstr).unwrap();
+        assert_eq!(outstr, "www.google.com");
+    }
+
+    #[test]
+    fn test_read_compressed_qname() {
+        let mut packet = BytePacketBuffer::new();
+        packet.write_qname("f.isi.arpa").unwrap();
+        let pos = packet.pos();
+        packet.write_u8(0x03 << 6).unwrap();
+        packet.write_u8(0).unwrap();
+
+        packet.seek(pos).unwrap();
+        let mut outstr = String::new();
+        packet.read_qname(&mut outstr).unwrap();
+        assert_eq!(outstr, "f.isi.arpa");
+    }
+
+    #[test]
+    fn test_read_compressed_partial_qname() {
+        let mut packet = BytePacketBuffer::new();
+        packet.write_qname("f.isi.arpa").unwrap();
+        let pos = packet.pos();
+        packet.write_u8(3).unwrap();
+        packet.write_u8(b'f').unwrap();
+        packet.write_u8(b'o').unwrap();
+        packet.write_u8(b'o').unwrap();
+        packet.write_u8(0x03 << 6).unwrap();
+        packet.write_u8(2).unwrap();
+
+        packet.seek(pos).unwrap();
+        let mut outstr = String::new();
+        packet.read_qname(&mut outstr).unwrap();
+        assert_eq!(outstr, "foo.isi.arpa");
     }
 }

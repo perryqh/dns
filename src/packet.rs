@@ -3,21 +3,11 @@ use crate::header::Header;
 use crate::question::Question;
 use crate::record::Record;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Packet {
     pub header: Header,
     pub questions: Vec<Question>,
     pub answers: Vec<Record>,
-}
-
-impl Default for Packet {
-    fn default() -> Self {
-        Self {
-            header: Header::default(),
-            questions: Vec::default(),
-            answers: Vec::default(),
-        }
-    }
 }
 
 impl Packet {
@@ -38,40 +28,54 @@ impl Packet {
 
         Ok(result)
     }
+
+    pub fn write(&mut self, buffer: &mut BytePacketBuffer) -> anyhow::Result<()> {
+        self.header.question_count = self.questions.len() as u16;
+        self.header.answer_count = self.answers.len() as u16;
+        self.header.authority_count = 0;
+        self.header.additional_count = 0;
+
+        self.header.write(buffer)?;
+
+        for question in &self.questions {
+            question.write(buffer)?;
+        }
+        for rec in &self.answers {
+            rec.write(buffer)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
     use super::*;
     use crate::header::{Opcode, RCode};
     use crate::question::{QClass, QType};
+    use std::net::Ipv4Addr;
 
     #[test]
-    fn default_packet() {
+    fn test_default_packet() {
         let packet = Packet::default();
         assert_eq!(packet.header, Header::default());
         assert_eq!(packet.questions, Vec::default());
         assert_eq!(packet.answers, Vec::default());
     }
 
-    // #[test]
-    // fn default_packet_bytes() {
-    //     let packet = Packet::default();
-    //     let bytes = packet.as_bytes();
-    //     assert_eq!(
-    //         bytes,
-    //         [
-    //             4, 210, 128, 0, 0, 1, 0, 1, 0, 0, 0, 0, 12, 99, 111, 100, 101, 99, 114, 97, 102,
-    //             116, 101, 114, 115, 2, 105, 111, 0, 0, 1, 0, 1, 12, 99, 111, 100, 101, 99, 114, 97,
-    //             102, 116, 101, 114, 115, 2, 105, 111, 0, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 8, 8, 8, 8
-    //         ]
-    //     );
-    // }
-
     #[test]
-    fn packet_from_bytes() {
-        let mut bytes = [
+    fn test_default_packet_header_bytes() {
+        let mut buffer = BytePacketBuffer::new();
+        let mut packet = Packet::default();
+        packet.write(&mut buffer).unwrap();
+        assert_eq!(
+            buffer.buf[..buffer.pos],
+            [4, 210, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0,]
+        );
+    }
+
+    fn build_standard_packet_bytes() -> [u8; 64] {
+        [
             4, 210, 128, 0, 0, 1, 0, 1, 0, 0, 0, 0, 12, 99, 111, 100, 101, 99, 114, 97, 102,
             116, // 22
             101, 114, 115, 2, 105, 111, 0, 0, 1, 0, 1, 12, 99, 111, 100, 101, 99, 114, 97,
@@ -83,7 +87,12 @@ mod tests {
             0, 0, 0, 60, // ttl
             0, 4, // rdlength
             8, 8, 8, 8, // rdata
-        ];
+        ]
+    }
+
+    #[test]
+    fn test_standard_packet_from_bytes() {
+        let mut bytes = build_standard_packet_bytes();
         let mut buffer = BytePacketBuffer::new();
         buffer.buf[..bytes.len()].copy_from_slice(&mut bytes);
 
@@ -113,35 +122,17 @@ mod tests {
             }
             _ => panic!("Wrong record type"),
         }
-    }
 
-    // The compression scheme allows a domain name in a message to be
-    // represented as either:
-    //
-    //    - a sequence of labels ending in a zero octet
-    //
-    //    - a pointer
-    //
-    //    - a sequence of labels ending with a pointer
-    // #[test]
-    // fn test_message_with_compression() {
-    //     let q: = [1, b"F", 3, b"I", b"S", b"I", 4, b"A", b"R", b"P", b"A"]
-    //     let bytes = [
-    //         4, 210, 128, 0, 0, 1, 0, 0, 0, 0, 0, 0, // end of header (12 bytes)
-    //         1, b"F", 3, b"I", b"S", b"I", // 18
-    //         4, b"A", b"R", b"P", b"A",
-    //         0, // terminate first label sequence
-    //         3, b"F", b"O", b"0",
-    //         1, 1, 13, // pointer 13 byte TODO: somehow the offset is 14 bits
-    //         1, 1, 19, // TODO: 14 bits?
-    //         0, // terminate last label
-    //         0,1, // qtype
-    //         0,1, // qclass
-    //     ];
-    //     let message = Message::from_bytes(&bytes);
-    //     assert_eq!(
-    //         message.questions[0].qname,
-    //         vec![b"codecrafters".to_vec(), b"io".to_vec()]
-    //     );
-    // }
+        let mut buffer = BytePacketBuffer::new();
+        let mut packet = packet;
+        packet.write(&mut buffer).unwrap();
+        assert_eq!(
+            buffer.buf[..buffer.pos],
+            [
+                4, 210, 128, 0, 0, 1, 0, 1, 0, 0, 0, 0, 12, 99, 111, 100, 101, 99, 114, 97, 102,
+                116, 101, 114, 115, 2, 105, 111, 0, 0, 1, 0, 1, 12, 99, 111, 100, 101, 99, 114, 97,
+                102, 116, 101, 114, 115, 2, 105, 111, 0, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 8, 8, 8, 8
+            ]
+        );
+    }
 }

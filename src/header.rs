@@ -165,4 +165,25 @@ impl Header {
 
         Ok(())
     }
+
+    pub fn write(&self, buffer: &mut BytePacketBuffer) -> anyhow::Result<()> {
+        buffer.write_u16(self.id)?;
+
+        buffer.write_u8(
+            (self.recursion_desired as u8)
+                | ((self.truncation as u8) << 1)
+                | ((self.authoritative as u8) << 2)
+                | ((self.opcode as u8) << 3)
+                | ((self.is_reply as u8) << 7),
+        )?;
+
+        buffer.write_u8((self.rcode as u8) | ((self.recursion_available as u8) << 7))?;
+
+        buffer.write_u16(self.question_count)?;
+        buffer.write_u16(self.answer_count)?;
+        buffer.write_u16(self.authority_count)?;
+        buffer.write_u16(self.additional_count)?;
+
+        Ok(())
+    }
 }

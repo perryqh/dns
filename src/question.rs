@@ -138,4 +138,13 @@ impl Question {
 
         Ok(())
     }
+
+    pub fn write(&self, buffer: &mut BytePacketBuffer) -> anyhow::Result<()> {
+        buffer.write_qname(&self.name)?;
+
+        buffer.write_u16(self.qtype as u16)?;
+        buffer.write_u16(self.qclass as u16)?;
+
+        Ok(())
+    }
 }

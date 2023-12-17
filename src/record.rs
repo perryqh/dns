@@ -24,17 +24,17 @@ use std::net::Ipv4Addr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Record {
-    UNKNOWN {
+    Unknown {
         domain: String,
         qtype: u16,
         data_len: u16,
         ttl: u32,
-    }, // 0
+    },
     A {
         domain: String,
         addr: Ipv4Addr,
         ttl: u32,
-    }, // 1
+    },
 }
 
 impl Record {
@@ -63,7 +63,7 @@ impl Record {
             _ => {
                 buffer.step(data_len as usize)?;
 
-                Ok(Record::UNKNOWN {
+                Ok(Record::Unknown {
                     domain,
                     qtype: qtype_num,
                     data_len,

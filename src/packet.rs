@@ -2,7 +2,18 @@ use crate::byte_packet_buffer::BytePacketBuffer;
 use crate::header::Header;
 use crate::question::Question;
 use crate::record::Record;
-
+// https://datatracker.ietf.org/doc/html/rfc1035
+//     +---------------------+
+//     |        Header       |
+//     +---------------------+
+//     |       Question      | the question for the name server
+//     +---------------------+
+//     |        Answer       | RRs answering the question
+//     +---------------------+
+//     |      Authority      | RRs pointing toward an authority
+//     +---------------------+
+//     |      Additional     | RRs holding additional information
+//     +---------------------+
 #[derive(Clone, Debug, Default)]
 pub struct Packet {
     pub header: Header,

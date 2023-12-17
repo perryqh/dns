@@ -83,10 +83,6 @@ impl BytePacketBuffer {
     }
 
     /// Read a qname
-    ///
-    /// The tricky part: Reading domain names, taking labels into consideration.
-    /// Will take something like [3]www[6]google[3]com[0] and append
-    /// www.google.com to outstr.
     pub fn read_qname(&mut self, outstr: &mut String) -> anyhow::Result<()> {
         // Since we might encounter jumps, we'll keep track of our position
         // locally as opposed to using the position within the struct. This
